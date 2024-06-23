@@ -2,6 +2,7 @@ from pyocd.core.soc_target import SoCTarget
 from pyocd.probe.debug_probe import DebugProbe
 from pyocd.probe.stlink_probe import StlinkProbe
 from pyocd.core.target import Target
+from pyocd.core.session import Session
 
 
 from pyocd.core.helpers import ConnectHelper
@@ -10,14 +11,15 @@ import time
 
 
 import logging
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
+logger = logging.getLogger("pogoProgrammer")
 
 
 probes : list[DebugProbe | StlinkProbe] = ConnectHelper.get_all_connected_probes()
 
 def test_pro_call(progress : float):
-    print(f"progress {progress}%")
+    logger.info(f"progress {progress}%")
 
 
 def perform_some_operation(probe : DebugProbe | StlinkProbe):
@@ -27,6 +29,7 @@ def perform_some_operation(probe : DebugProbe | StlinkProbe):
                 "target_override": "stm32g030f6px",
                 "connect_mode" : 'under-reset',
                 "reset_type": "hw",
+                "logging":"pyocd.yaml",
                 "frequency": 4000000,
             }) as session:
         board  = session.board
@@ -39,11 +42,72 @@ def perform_some_operation(probe : DebugProbe | StlinkProbe):
             test_pro_call,
             )
         
-        #file_programmer.program("./LibraryDevelopment.bin")
         
         
-        FLASH_BASE_ADDR = 0x40022000
+        class STM32G030SWDInterface:
+
+            class FlashPeripheral:
+                FLASH_BASE_ADDR                 = 0x40022000                        # Flash Base Address
+                FLASH_KEY_REGISTER              = FLASH_BASE_ADDR + 0x008           # Flash Key Register Address
+                FLASH_KEY_1                     = 0x45670123                        # Flash Key 1 for Flash unlock sequence
+                FLASH_KEY_2                     = 0xCDEF89AB                        # Flash Key 2 for Flash unlock sequence
+                
+                FLASH_OPTION_KEY_REGISTER       = FLASH_BASE_ADDR + 0x00C           # Flash Option Key register Address
+                FLASH_OPTION_KEY_1              = 0x08192A3B                        # Flash Option Key 1 for Option unlock sequence
+                FLASH_OPTION_KEY_2              = 0x4C5D6E7F                        # Flash Option Key 2 for Option unlock sequence
+            
+                
+                FLASH_STATUS_REGISTER           = FLASH_BASE_ADDR + 0x010           # Flash Status Register Address
+                FLASH_SR_CFGBSY_MASK            = 0x40000                           # Flash SR - Programming or Erase configuration busy flag
+                FLASH_SR_BSY1_MASK              = 0x10000                           # Flash SR - Bank 1 busy flag
+                FLASH_SR_PGSERR_MASK            = 0x80                              # Flash SR - Programming Sequence Error Flag (PROGERR,SIZERR, PGAERR, WRPERR, MISSERR or FASTERR)
+                
+                FLASH_CONTROL_REGISTER          = FLASH_BASE_ADDR + 0x014           # Flash Control Register Address
+                FLASH_CR_OPTLOCK_MASK           = 0x80000000                        # Flash CR - Flash Lock Flag (bit 31)
+                FLASH_CR_FLASH_LOCK_MASK        = 0x40000000                        # Flash CR - Flash Options Lock Flag (bit 30)
+                FLASH_CR_OBL_LAUNCH_MASK        = 0x8000000                         # Flash CR - Option byte load launch (bit 27)
+                FLASH_CR_OPTSTRT_MASK           = 0x20000                           # Flash CR - Start of modification of option bytes (bit 17)
+                FLASH_CR_STRT_MASK              = 0x10000                           # Flash CR - Start Erase Operation (bit 16)
+                FLASH_CR_MER1_MASK              = 0x4                               # Flash CR - Mass Erase Request (bit 2)
+                
+                FLASH_OPTION_REGISTER           = FLASH_BASE_ADDR + 0x020           # Flash Option Register Address
+                FLASH_OPTR_RDP_MASK             = 0xFF                              # Flash OR - Read Protection Level (bit 7:0) [ Level 0 = 0xAA; Level 1 = BB; Level 2 = CC]
+                FLASH_OPTR_WITHOUT_RDP_MASK     = 0xFFFFFF00                        # Flash OR - Option Register without RDP
+                
+                
+                
+            def __init__(self, probe : DebugProbe | StlinkProbe, bin_file_path : str, frequency : int   = 4000000, target : str = "stm32g030f6px") -> None:
+                self._options : dict[str, any] = {
+                    "target_override": target,
+                    "connect_mode" : 'under-reset',
+                    "reset_type": "hw",
+                    "logging":"pyocd.yaml",
+                    "frequency": frequency,
+                }
+                self._serial_number : str = probe.unique_id
+                self._bin_file_path : bin_file_path
+                
+                
+                
+            
+            def disableRDP(self):
+                
+                pass
+            
+            def saveDeviceUUID(self):
+                pass
+            
+            def programDevice(self):
+                pass
+            
+            def enableRDP(self):
+                pass
+            
+            def checkRDP(self):
+                pass
+                
         
+        FLASH_BASE_ADDR = 0x40022000 
         
         FLASH_KEY_REGISTER = FLASH_BASE_ADDR + 0x008
         
@@ -52,8 +116,8 @@ def perform_some_operation(probe : DebugProbe | StlinkProbe):
         
         FLASH_OPTION_KEY_REGISTER = FLASH_BASE_ADDR + 0x00C
         
-        FLASH__OPTION_KEY_1 = 0x08192A3B
-        FLASH__OPTION_KEY_2 = 0x4C5D6E7F
+        FLASH_OPTION_KEY_1 = 0x08192A3B
+        FLASH_OPTION_KEY_2 = 0x4C5D6E7F
     
         
         FLASH_STATUS_REGISTER = FLASH_BASE_ADDR + 0x010
@@ -162,8 +226,8 @@ def perform_some_operation(probe : DebugProbe | StlinkProbe):
                 print("unlocking option")
                 
                 # Write opt keys consecutively to unlock Flash CR register(erase / programming operations)
-                target.write32(FLASH_OPTION_KEY_REGISTER, FLASH__OPTION_KEY_1)
-                target.write32(FLASH_OPTION_KEY_REGISTER, FLASH__OPTION_KEY_2)
+                target.write32(FLASH_OPTION_KEY_REGISTER, FLASH_OPTION_KEY_1)
+                target.write32(FLASH_OPTION_KEY_REGISTER, FLASH_OPTION_KEY_2)
                 
                 wait_for_busy_bank1()
                 wait_for_busy_programming_erasing()
@@ -308,8 +372,15 @@ def perform_some_operation(probe : DebugProbe | StlinkProbe):
             pass
         
         #perform_mass_erase()
-        disable_read_protection()
-        perform_mass_erase()
+        #disable_read_protection()
+        
+        
+        
+        #perform_mass_erase()
+        
+        target.reset_and_halt()
+        
+        #file_programmer.program("./LibraryDevelopment.bin")
         
         target.reset(Target.ResetType.HW)
         
@@ -328,4 +399,5 @@ for probe in probes:
     perform_some_operation(probe)
     
     
+
 
